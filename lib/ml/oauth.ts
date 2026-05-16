@@ -45,6 +45,8 @@ export function buildAuthUrl(state: string): string {
     client_id: appId,
     redirect_uri: redirect,
     state,
+    // offline_access é necessário pra ML devolver refresh_token
+    scope: 'offline_access',
   })
   return `${AUTH_URL}?${params.toString()}`
 }
@@ -64,17 +66,33 @@ async function postToken(body: URLSearchParams): Promise<MlTokens> {
     const txt = await res.text().catch(() => '')
     throw new Error(`ML OAuth ${res.status}: ${txt.slice(0, 300)}`)
   }
-  const data = (await res.json()) as Partial<TokenResponse>
-  if (!data.access_token || !data.refresh_token || data.user_id === undefined || data.expires_in === undefined) {
+  const data = (await res.json()) as Record<string, unknown>
+
+  const access_token  = typeof data.access_token  === 'string' ? data.access_token  : undefined
+  const refresh_token = typeof data.refresh_token === 'string' ? data.refresh_token : undefined
+  const expires_in    = typeof data.expires_in    === 'number' ? data.expires_in    : undefined
+
+  // ML às vezes omite user_id do body mas embute no access_token:
+  // APP_USR-{app_id}-{date}-{hash}-{user_id}  → o último segmento é o user_id
+  let user_id: number | undefined =
+    typeof data.user_id === 'number' ? data.user_id : undefined
+  if (user_id === undefined && access_token) {
+    const last = access_token.split('-').pop()
+    if (last && /^\d+$/.test(last)) user_id = Number(last)
+  }
+
+  if (!access_token || !refresh_token || user_id === undefined || expires_in === undefined) {
     throw new Error(
-      `ML OAuth resposta sem campos esperados. Recebido: ${JSON.stringify(data).slice(0, 500)}`,
+      `ML OAuth resposta incompleta. Keys: [${Object.keys(data).join(', ')}]. ` +
+      `Body: ${JSON.stringify(data).slice(0, 1500)}`,
     )
   }
+
   return {
-    access_token: data.access_token,
-    refresh_token: data.refresh_token,
-    expires_at: new Date(Date.now() + data.expires_in * 1000),
-    ml_user_id: data.user_id,
+    access_token,
+    refresh_token,
+    expires_at: new Date(Date.now() + expires_in * 1000),
+    ml_user_id: user_id,
   }
 }
 
