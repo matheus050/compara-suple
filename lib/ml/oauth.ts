@@ -64,7 +64,12 @@ async function postToken(body: URLSearchParams): Promise<MlTokens> {
     const txt = await res.text().catch(() => '')
     throw new Error(`ML OAuth ${res.status}: ${txt.slice(0, 300)}`)
   }
-  const data = (await res.json()) as TokenResponse
+  const data = (await res.json()) as Partial<TokenResponse>
+  if (!data.access_token || !data.refresh_token || data.user_id === undefined || data.expires_in === undefined) {
+    throw new Error(
+      `ML OAuth resposta sem campos esperados. Recebido: ${JSON.stringify(data).slice(0, 500)}`,
+    )
+  }
   return {
     access_token: data.access_token,
     refresh_token: data.refresh_token,
@@ -110,6 +115,13 @@ export async function refreshTokens(refreshToken: string): Promise<MlTokens> {
 // ---------- Persistência ----------
 
 export async function saveTokens(tokens: MlTokens): Promise<void> {
+  if (!tokens.ml_user_id || !tokens.access_token || !tokens.refresh_token) {
+    throw new Error(
+      `saveTokens: tokens incompletos. ml_user_id=${tokens.ml_user_id}, ` +
+      `access_token=${tokens.access_token ? '[set]' : '[empty]'}, ` +
+      `refresh_token=${tokens.refresh_token ? '[set]' : '[empty]'}`,
+    )
+  }
   const { error } = await supabaseAdmin
     .from('ml_oauth_tokens')
     .upsert(
@@ -122,7 +134,12 @@ export async function saveTokens(tokens: MlTokens): Promise<void> {
       },
       { onConflict: 'ml_user_id' },
     )
-  if (error) throw error
+  if (error) {
+    throw new Error(
+      `Supabase upsert ml_oauth_tokens falhou: ${error.message} ` +
+      `(code=${error.code}, details=${error.details ?? 'n/a'})`,
+    )
+  }
 }
 
 /**

@@ -42,9 +42,11 @@ export async function GET(req: NextRequest) {
     res.cookies.delete('ml_oauth_state')
     return res
   } catch (e) {
-    return NextResponse.json(
-      { ok: false, error: e instanceof Error ? e.message : String(e) },
-      { status: 500 },
-    )
+    console.error('OAuth callback error:', e)
+    const errMsg =
+      e instanceof Error ? e.message
+      : typeof e === 'object' && e !== null ? JSON.stringify(e)
+      : String(e)
+    return NextResponse.json({ ok: false, error: errMsg }, { status: 500 })
   }
 }
